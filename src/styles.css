@@ -1312,10 +1312,8 @@ button.phrase:active {
   gap: 9px;
 }
 
-@media (min-width: 420px) {
-  .opts.two {
-    grid-template-columns: 1fr 1fr;
-  }
+.opts.two {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
 }
 
 .opt {
