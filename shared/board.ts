@@ -35,6 +35,7 @@ export interface KindInfo {
   icon: string;
   color: string;
   blurb: string;
+  en: { label: string; short: string; blurb: string };
 }
 
 export const KINDS: Record<SpaceKind, KindInfo> = {
@@ -44,6 +45,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '✒️',
     color: '#2F6FAE',
     blurb: 'Trouve le bon participe passé (apprendre → appris).',
+    en: { label: 'Past participle', short: 'Participle', blurb: 'Find the right past participle (apprendre → appris).' },
   },
   etre: {
     label: 'La maison d’être',
@@ -51,6 +53,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '🏠',
     color: '#D7263D',
     blurb: 'DR & MRS VANDERTRAMP : être ou avoir ? Et l’accord ?',
+    en: { label: 'The house of être', short: 'Être', blurb: 'DR & MRS VANDERTRAMP: être or avoir? And the agreement?' },
   },
   temps: {
     label: 'Passé composé ou imparfait ?',
@@ -58,6 +61,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '⏳',
     color: '#E09A1E',
     blurb: 'Action ponctuelle ou description ? Choisis le bon temps.',
+    en: { label: 'Passé composé or imparfait?', short: 'PC / Imp.', blurb: 'One-time action or description? Pick the right tense.' },
   },
   vocab: {
     label: 'Vocabulaire & écoute',
@@ -65,6 +69,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '🔊',
     color: '#3F7D58',
     blurb: 'Expressions, nombres, faux amis et écoute.',
+    en: { label: 'Vocabulary & listening', short: 'Vocab', blurb: 'Expressions, numbers, false friends and listening.' },
   },
   parle: {
     label: 'À toi de parler !',
@@ -72,6 +77,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '🎤',
     color: '#6D5BA8',
     blurb: 'Parle 45 secondes. Les autres votent.',
+    en: { label: 'Your turn to talk!', short: 'Talk', blurb: 'Talk for 45 seconds. The others vote.' },
   },
   table: {
     label: 'Tour de table',
@@ -79,6 +85,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '☕',
     color: '#B5552F',
     blurb: 'Tout le monde répond. Vote pour la meilleure réponse.',
+    en: { label: 'Around the table', short: 'Café', blurb: 'Everyone answers. Vote for the best answer.' },
   },
   duel: {
     label: 'Duel !',
@@ -86,6 +93,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '⚔️',
     color: '#1B2A4A',
     blurb: 'Défie un joueur. Le plus rapide gagne 2 🥐.',
+    en: { label: 'Duel!', short: 'Duel', blurb: 'Challenge a player. The fastest wins 2 🥐.' },
   },
   chance: {
     label: 'Surprise !',
@@ -93,6 +101,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '✨',
     color: '#2A2A2A',
     blurb: 'Grève, anniversaire, pique-nique… tout peut arriver.',
+    en: { label: 'Surprise!', short: 'Surprise', blurb: 'Strikes, birthdays, picnics… anything can happen.' },
   },
   gare: {
     label: 'Gare TGV',
@@ -100,6 +109,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '🚄',
     color: '#14213D',
     blurb: 'Prends le TGV jusqu’à la gare suivante !',
+    en: { label: 'TGV station', short: 'Station', blurb: 'Take the TGV to the next station!' },
   },
   depart: {
     label: 'Départ',
@@ -107,6 +117,7 @@ export const KINDS: Record<SpaceKind, KindInfo> = {
     icon: '🏁',
     color: '#14213D',
     blurb: 'Chaque tour complet : +3 🥐.',
+    en: { label: 'Start', short: 'Start', blurb: 'Every full lap: +3 🥐.' },
   },
 };
 

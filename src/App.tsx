@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useRoute } from './hooks';
+import { PeekButton } from './peek';
 import { Home } from './pages/Home';
 import { Aide, Rules } from './pages/Info';
 import { RoomPage } from './pages/RoomPage';
@@ -17,6 +18,15 @@ export function App() {
     document.title = route.name === 'room' || route.name === 'tv' ? `Partie ${route.code} · Le Grand Tour` : TITLES[route.name];
   }, [route]);
 
+  return (
+    <>
+      {page(route)}
+      <PeekButton />
+    </>
+  );
+}
+
+function page(route: ReturnType<typeof useRoute>) {
   switch (route.name) {
     case 'rules':
       return <Rules />;

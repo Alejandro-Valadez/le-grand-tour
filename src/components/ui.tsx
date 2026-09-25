@@ -4,8 +4,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { KINDS } from '../../shared/board';
 import type { Player, SpaceKind } from '../../shared/types';
 import { serverNow } from '../hooks';
+import { useT } from '../peek';
 
-/** Rend le **gras** des cartes. */
+/** Rend le **gras** des cartes, et « ___ » comme un blanc à remplir. */
 export function Rich({ text }: { text: string }) {
   const parts = text.split(/\*\*(.+?)\*\*/g);
   return (
@@ -56,7 +57,7 @@ export function Flap({ ms }: { ms: number }) {
   const mm = String(Math.floor(s / 60)).padStart(2, '0');
   const ss = String(s % 60).padStart(2, '0');
   return (
-    <span className={`flap${s <= 60 ? ' urgent' : ''}`} aria-label={`Temps restant : ${Math.floor(s / 60)} minutes ${s % 60} secondes`}>
+    <span className={`flap${s <= 30 ? ' urgent' : ''}`} aria-label={`${Math.floor(s / 60)} min ${s % 60} s`}>
       <span>{mm[0]}</span>
       <span>{mm[1]}</span>
       <span className="colon">:</span>
@@ -67,6 +68,7 @@ export function Flap({ ms }: { ms: number }) {
 }
 
 export function TimeBar({ deadline, total, label = true }: { deadline: number; total: number; label?: boolean }) {
+  const t = useT();
   const left = Math.max(0, deadline - serverNow());
   const frac = Math.max(0, Math.min(1, left / total));
   const secs = Math.ceil(left / 1000);
@@ -74,11 +76,11 @@ export function TimeBar({ deadline, total, label = true }: { deadline: number; t
     <>
       {label && (
         <div className="time-row">
-          <span className="kicker">Temps</span>
+          <span className="kicker">{t('Temps', 'Time')}</span>
           <span className="secs">{secs} s</span>
         </div>
       )}
-      <div className={`timebar${secs <= 5 ? ' low' : ''}`} role="progressbar" aria-valuenow={secs} aria-valuemin={0} aria-label="Temps restant">
+      <div className={`timebar${secs <= 5 ? ' low' : ''}`} role="progressbar" aria-valuenow={secs} aria-valuemin={0} aria-label={t('Temps restant', 'Time left')}>
         <i style={{ transform: `scaleX(${frac})` }} />
       </div>
     </>
@@ -110,8 +112,9 @@ export function Ticket({
   seed: string;
   children: ReactNode;
   stamp?: { ok: boolean; text: string } | null;
-  title?: string;
+  title?: ReactNode;
 }) {
+  const t = useT();
   const info = KINDS[kind];
   return (
     <motion.div
@@ -123,12 +126,12 @@ export function Ticket({
     >
       <div className="ticket-stub" aria-hidden>
         <span className="ico">{info.icon}</span>
-        <span className="vert">Grand Tour · {info.short}</span>
+        <span className="vert">Grand Tour · {t(info.short, info.en.short)}</span>
         <span className="ico">🥐</span>
       </div>
       <div className="ticket-body">
         <div className="ticket-head">
-          <span className="ticket-class">{title ?? info.label}</span>
+          <span className="ticket-class">{title ?? t(info.label, info.en.label)}</span>
           <span className="ticket-no">{ticketNo(seed)}</span>
         </div>
         {children}
@@ -150,10 +153,11 @@ export function Ticket({
   );
 }
 
-export function Say({ children, label = 'À dire' }: { children: ReactNode; label?: string }) {
+export function Say({ children, label }: { children: ReactNode; label?: ReactNode }) {
+  const t = useT();
   return (
     <div className="say">
-      <span className="lbl">💬 {label}</span>
+      <span className="lbl">💬 {label ?? t('À dire', 'Say it')}</span>
       <span>{children}</span>
     </div>
   );
@@ -166,7 +170,7 @@ export function Qr({ text }: { text: string }) {
       .then(setSvg)
       .catch(() => setSvg(''));
   }, [text]);
-  return <div className="qr" aria-label={`Code QR pour ${text}`} dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className="qr" aria-label={`QR : ${text}`} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function Sheet({ onClose, children, label }: { onClose?: () => void; children: ReactNode; label: string }) {
@@ -195,23 +199,46 @@ export function Sheet({ onClose, children, label }: { onClose?: () => void; chil
   );
 }
 
-export const PHRASES = [
-  'C’est à qui ?',
-  'C’est à toi !',
-  'C’est à moi !',
-  'Vas-y, lance le dé !',
-  'Bien joué !',
-  'Dommage !',
-  'Bravo !',
-  'Je ne sais pas…',
-  'Tu peux répéter, s’il te plaît ?',
-  'Comment dit-on… en français ?',
-  'Je suis d’accord.',
-  'Je ne suis pas d’accord !',
-  'Attends !',
-  'Dépêche-toi !',
-  'J’ai gagné !',
-  'Tu triches !',
-  'Chut ! Parle français !',
-  'Qu’est-ce que ça veut dire ?',
+/** Phrases utiles : [français, anglais]. On les prononce toujours en français. */
+export const PHRASES: [string, string][] = [
+  ['C’est à qui ?', 'Whose turn is it?'],
+  ['C’est à toi !', 'It’s your turn!'],
+  ['C’est à moi !', 'It’s my turn!'],
+  ['Vas-y, lance le dé !', 'Go on, roll the die!'],
+  ['Bien joué !', 'Nice job!'],
+  ['Dommage !', 'Too bad!'],
+  ['Bravo !', 'Well done!'],
+  ['Je ne sais pas…', 'I don’t know…'],
+  ['Tu peux répéter, s’il te plaît ?', 'Can you repeat that, please?'],
+  ['Comment dit-on… en français ?', 'How do you say… in French?'],
+  ['Qu’est-ce que ça veut dire ?', 'What does that mean?'],
+  ['Je suis d’accord.', 'I agree.'],
+  ['Je ne suis pas d’accord !', 'I disagree!'],
+  ['Attends !', 'Wait!'],
+  ['Dépêche-toi !', 'Hurry up!'],
+  ['En garde !', 'On guard!'],
+  ['Prends ça !', 'Take that!'],
+  ['Aïe ! Ça fait mal !', 'Ouch! That hurts!'],
+  ['J’ai gagné !', 'I won!'],
+  ['Tu triches !', 'You’re cheating!'],
+  ['Chut ! Parle français !', 'Shh! Speak French!'],
 ];
+
+/** Les trois modes de jeu, en français et en anglais. */
+export const MODE_INFO = {
+  plateau: {
+    icon: '🗺️',
+    fr: { name: 'Le Grand Tour', tag: 'Plateau', desc: 'Le jeu de plateau : cartes, conversation et votes. Le mode qui fait le plus parler !' },
+    en: { name: 'The Grand Tour', tag: 'Board', desc: 'The board game: cards, conversation and votes. The mode that gets people talking the most!' },
+  },
+  combat: {
+    icon: '🥊',
+    fr: { name: 'Combat', tag: 'Jeu de combat', desc: 'Chaque bonne réponse frappe un adversaire. Combos, K.O., le dernier debout gagne !' },
+    en: { name: 'Fight', tag: 'Fighting game', desc: 'Every right answer hits an opponent. Combos, K.O.s — last one standing wins!' },
+  },
+  sprint: {
+    icon: '⚡',
+    fr: { name: 'Sprint', tag: 'Course de vitesse', desc: 'Tout le monde reçoit la même question. Le plus rapide gagne 3 points !' },
+    en: { name: 'Sprint', tag: 'Speed race', desc: 'Everyone gets the same question. The fastest gets 3 points!' },
+  },
+} as const;

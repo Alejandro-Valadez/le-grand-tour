@@ -2,7 +2,13 @@
 
 **Un jeu de plateau en ligne pour parler français** — conçu par Alejandro & Krithik pour le cours de Français III de M. Marshall (IMSA, 2026-2027).
 
-Un tour de France en 36 cases sur l’Hexagone. Chaque joueur joue sur son téléphone (2 à 6 joueurs, idéalement 4), et la partie dure 10 à 30 minutes. Le joueur qui a le plus de croissants 🥐 à la fin gagne.
+Chaque joueur joue sur son téléphone (2 à 6 joueurs). Trois modes :
+
+- **🗺️ Le Grand Tour** — le jeu de plateau : un tour de France en 36 cases sur l’Hexagone, avec des cartes, de la conversation et des votes (1 à 20 minutes ; parties éclair de 1 ou 2 minutes avec des délais plus courts).
+- **🥊 Combat** — un jeu de combat : chaque bonne réponse frappe un adversaire (combos, bonus de vitesse, étourdissement si on se trompe, K.O. !). Rounds de 1, 2 ou 3 minutes.
+- **⚡ Sprint** — tout le monde reçoit la même question ; le premier qui trouve gagne 3 points (1, 2 ou 5 minutes).
+
+Le bouton **👀 English** (à maintenir) affiche l’écran en anglais ; on relâche pour revenir au français. Les choix de réponse restent en français.
 
 ## Ce qu’on révise
 

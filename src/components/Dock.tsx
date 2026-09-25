@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cityAt } from '../../shared/board';
-import { T } from '../../shared/engine';
+import { timersFor } from '../../shared/engine';
 import type { Action, DealtQuiz, Player, Room, Turn } from '../../shared/types';
 import { canSpeak, speakFrench } from '../fx';
 import { serverNow } from '../hooks';
+import { useT } from '../peek';
 import { Av, Rich, Say, Ticket, TimeBar } from './ui';
 
 export type Act = (a: Action) => Promise<boolean>;
@@ -35,16 +36,17 @@ function Status({ p, title, sub }: { p?: Player; title: ReactNode; sub?: ReactNo
   );
 }
 
-function Listen({ text }: { text: string }) {
+export function Listen({ text }: { text: string }) {
+  const t = useT();
   if (!canSpeak()) return null;
   return (
     <button className="listen" onClick={() => speakFrench(text)}>
-      🔊 Écouter
+      🔊 {t('Écouter', 'Listen')}
     </button>
   );
 }
 
-function Options({
+export function Options({
   card,
   onPick,
   disabled,
@@ -71,9 +73,9 @@ function Options({
           else if (reveal.wrong.includes(i)) cls.push('wrong');
           else cls.push('dim');
         } else if (struck.includes(i)) cls.push('struck');
-        else if (picked === i) cls.push('right');
+        else if (picked === i) cls.push('picked');
         return (
-          <button key={i} className={cls.join(' ')} disabled={disabled || struck.includes(i)} onClick={() => onPick?.(i)}>
+          <button key={i} className={cls.join(' ')} disabled={disabled || struck.includes(i)} onClick={() => onPick?.(i)} lang="fr">
             <span className="letter">{LETTERS[i]}</span>
             <span>{o}</span>
             {tags[i] && <span className="tag">{tags[i]}</span>}
@@ -84,14 +86,39 @@ function Options({
   );
 }
 
-function QuizFace({ card, children }: { card: DealtQuiz; children?: ReactNode }) {
+/** Question + consigne ; en anglais pendant le « peek » (les options restent en français). */
+export function QuizFace({ card, children }: { card: DealtQuiz; children?: ReactNode }) {
+  const t = useT();
   return (
     <>
-      <div className="ticket-ask">{card.ask}</div>
+      <div className="ticket-ask">{t(card.ask, card.en.ask)}</div>
       <h3 className="ticket-q">
-        <Rich text={card.q} />
+        <Rich text={t(card.q, card.en.q)} />
       </h3>
       {children}
+    </>
+  );
+}
+
+export function Explain({ card }: { card: DealtQuiz }) {
+  const t = useT();
+  const x = t(card.x, card.en.x);
+  if (!x) return null;
+  return (
+    <div className="explain">
+      <span>💡</span>
+      <span>{x}</span>
+    </div>
+  );
+}
+
+function DieMini({ n }: { n: number }) {
+  const map: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  return (
+    <>
+      {Array.from({ length: 9 }, (_, i) => (
+        <i key={i} style={{ visibility: map[n]?.includes(i) ? 'visible' : 'hidden' }} />
+      ))}
     </>
   );
 }
@@ -99,42 +126,34 @@ function QuizFace({ card, children }: { card: DealtQuiz; children?: ReactNode })
 // ─── Lancer le dé ────────────────────────────────────────────
 
 function RollPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'roll' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const mine = me?.id === turn.pid;
   if (mine) {
     return (
       <>
-        <Status p={p} title="C’est ton tour !" sub="Lance le dé et avance sur le Grand Tour." />
+        <Status p={p} title={t('C’est ton tour !', 'It’s your turn!')} sub={t('Lance le dé et avance sur le Grand Tour.', 'Roll the die and move along the Grand Tour.')} />
         <button className="btn rouge huge block die-btn" disabled={busy} onClick={() => act({ type: 'roll' })}>
           <span className="die-mini">
             <DieMini n={5} />
           </span>
-          Lance le dé !
+          {t('Lance le dé !', 'Roll the die!')}
         </button>
-        <TimeBar deadline={turn.deadline} total={T.roll} label={false} />
+        <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).roll} label={false} />
         <Say>
-          <q>C’est à moi ! Je lance le dé.</q>
+          <q lang="fr">C’est à moi ! Je lance le dé.</q>
+          {t(null, <span className="gloss"> — It’s my turn! I’m rolling the die.</span>)}
         </Say>
       </>
     );
   }
   return (
     <>
-      <Status p={p} title={`Au tour de ${first(p?.name)}`} sub="Tout le monde regarde le plateau…" />
+      <Status p={p} title={t(`Au tour de ${first(p?.name)}`, `${first(p?.name)}’s turn`)} sub={t('Tout le monde regarde le plateau…', 'Everyone watch the board…')} />
       <Say>
-        <q>Vas-y, {p?.name} ! Lance le dé !</q>
+        <q lang="fr">Vas-y, {p?.name} ! Lance le dé !</q>
+        {t(null, <span className="gloss"> — Go on, {p?.name}! Roll the die!</span>)}
       </Say>
-    </>
-  );
-}
-
-function DieMini({ n }: { n: number }) {
-  const on: Record<number, number[]> = { 5: [0, 2, 4, 6, 8] };
-  return (
-    <>
-      {Array.from({ length: 9 }, (_, i) => (
-        <i key={i} style={{ visibility: on[n].includes(i) ? 'visible' : 'hidden' }} />
-      ))}
     </>
   );
 }
@@ -142,31 +161,32 @@ function DieMini({ n }: { n: number }) {
 // ─── En route (animation avant la carte) ─────────────────────
 
 function Moving({ room }: { room: Room }) {
+  const t = useT();
   const mv = room.lastMove;
   const p = byId(room, mv?.pid);
+  const n = mv?.dice ?? 0;
   return (
     <Status
       p={p}
-      title={mv?.dice ? `${first(p?.name)} avance de ${mv.dice} case${mv.dice > 1 ? 's' : ''}…` : 'En route…'}
-      sub={mv?.dice ? <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><span className="die-mini" style={{ width: 30, height: 30 }}><DieFaceMini n={mv.dice} /></span> Tchou tchou !</span> : undefined}
+      title={n ? t(`${first(p?.name)} avance de ${n} case${n > 1 ? 's' : ''}…`, `${first(p?.name)} moves ${n} space${n > 1 ? 's' : ''}…`) : t('En route…', 'On the way…')}
+      sub={
+        n ? (
+          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+            <span className="die-mini" style={{ width: 30, height: 30 }}>
+              <DieMini n={n} />
+            </span>
+            {t('Tchou tchou !', 'Choo choo!')}
+          </span>
+        ) : undefined
+      }
     />
-  );
-}
-
-function DieFaceMini({ n }: { n: number }) {
-  const map: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-  return (
-    <>
-      {Array.from({ length: 9 }, (_, i) => (
-        <i key={i} style={{ visibility: map[n]?.includes(i) ? 'visible' : 'hidden', width: 5, height: 5 }} />
-      ))}
-    </>
   );
 }
 
 // ─── Quiz & vol ──────────────────────────────────────────────
 
 function QuizPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'quiz' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const mine = me?.id === turn.pid;
   const [picked, setPicked] = useState<number | null>(null);
@@ -183,7 +203,7 @@ function QuizPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
     <>
       <Ticket kind={turn.card.cat} seed={turn.card.id}>
         <QuizFace card={turn.card}>
-          <TimeBar deadline={turn.deadline} total={T.quiz} />
+          <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).quiz} />
           {turn.card.audio && <Listen text={turn.card.audio} />}
           <Options
             card={turn.card}
@@ -198,10 +218,20 @@ function QuizPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
         </QuizFace>
       </Ticket>
       {mine ? (
-        <Say label="Règle">Lis la question <b>à voix haute</b>, puis dis ta réponse avant de toucher !</Say>
+        <Say label={t('Règle', 'Rule')}>
+          {t(
+            <>
+              Lis la question <b>à voix haute</b>, puis dis ta réponse avant de toucher !
+            </>,
+            <>
+              Read the question <b>out loud</b>, then say your answer before you tap!
+            </>,
+          )}
+        </Say>
       ) : (
         <Say>
-          <q>Chut ! {p?.name} réfléchit…</q> Si {p?.name} se trompe, tu pourras voler la réponse !
+          <q lang="fr">Chut ! {p?.name} réfléchit…</q>{' '}
+          {t(`Si ${p?.name} se trompe, tu pourras voler la réponse !`, `(Shh! ${p?.name} is thinking…) If ${p?.name} gets it wrong, you can steal the answer!`)}
         </Say>
       )}
     </>
@@ -209,6 +239,7 @@ function QuizPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
 }
 
 function StealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'steal' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const canSteal = !!me && me.id !== turn.pid && !turn.tried.includes(me.id);
   const tried = !!me && turn.tried.includes(me.id);
@@ -216,27 +247,28 @@ function StealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, {
   return (
     <>
       <Ticket kind={turn.card.cat} seed={turn.card.id}>
-        <div className="banner rouge">🦊 Vol ! Le premier qui trouve gagne 1 🥐</div>
+        <div className="banner rouge">{t('🦊 Vol ! Le premier qui trouve gagne 1 🥐', '🦊 Steal! The first to get it wins 1 🥐')}</div>
         <QuizFace card={turn.card}>
-          <TimeBar deadline={turn.deadline} total={T.steal} />
+          <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).steal} />
           {turn.card.audio && <Listen text={turn.card.audio} />}
           <Options
             card={turn.card}
             disabled={!canSteal || busy}
             struck={struck}
-            tags={turn.firstChoice >= 0 ? { [turn.firstChoice]: `choix de ${p?.name}` } : {}}
+            tags={turn.firstChoice >= 0 ? { [turn.firstChoice]: t(`choix de ${p?.name}`, `${p?.name}’s pick`) } : {}}
             onPick={(i) => act({ type: 'steal', choice: i })}
           />
         </QuizFace>
       </Ticket>
       <Say>
         {me?.id === turn.pid ? (
-          <q>Oh non ! Qui connaît la réponse ?</q>
+          <q lang="fr">Oh non ! Qui connaît la réponse ?</q>
         ) : tried ? (
-          <q>Raté ! Dommage…</q>
+          <q lang="fr">Raté ! Dommage…</q>
         ) : (
-          <q>Je sais ! C’est…</q>
+          <q lang="fr">Je sais ! C’est…</q>
         )}
+        {t(null, <span className="gloss"> — {me?.id === turn.pid ? 'Oh no! Who knows the answer?' : tried ? 'Missed! Too bad…' : 'I know! It’s…'}</span>)}
       </Say>
     </>
   );
@@ -245,14 +277,24 @@ function StealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, {
 // ─── Duel ────────────────────────────────────────────────────
 
 function DuelPick({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'duel_pick' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const mine = me?.id === turn.pid;
   return (
     <Ticket kind="duel" seed={`duel-${turn.startsAt}`}>
-      <div className="ticket-ask">Défi</div>
-      <h3 className="ticket-q">{mine ? 'Qui veux-tu défier ?' : `${p?.name} choisit un adversaire…`}</h3>
-      <p style={{ marginTop: -4 }}>Même question pour vous deux. Le plus rapide gagne <b>2 🥐</b> !</p>
-      <TimeBar deadline={turn.deadline} total={T.duelPick} />
+      <div className="ticket-ask">{t('Défi', 'Challenge')}</div>
+      <h3 className="ticket-q">{mine ? t('Qui veux-tu défier ?', 'Who do you want to challenge?') : t(`${p?.name} choisit un adversaire…`, `${p?.name} is picking an opponent…`)}</h3>
+      <p style={{ marginTop: -4 }}>
+        {t(
+          <>
+            Même question pour vous deux. Le plus rapide gagne <b>2 🥐</b> !
+          </>,
+          <>
+            Same question for both of you. The fastest wins <b>2 🥐</b>!
+          </>,
+        )}
+      </p>
+      <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).duelPick} />
       {mine && (
         <div className="picks">
           {room.players
@@ -268,7 +310,8 @@ function DuelPick({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { p
       {mine && (
         <div style={{ marginTop: 12 }}>
           <Say>
-            <q>Je te défie, …&nbsp;!</q>
+            <q lang="fr">Je te défie, …&nbsp;!</q>
+            {t(null, <span className="gloss"> — I challenge you, …!</span>)}
           </Say>
         </div>
       )}
@@ -277,24 +320,24 @@ function DuelPick({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { p
 }
 
 function DuelPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'duel' }> }) {
+  const t = useT();
   const a = byId(room, turn.pid);
   const b = byId(room, turn.opp);
   const inDuel = !!me && (me.id === turn.pid || me.id === turn.opp);
   const locked = !!me && turn.locked.includes(me.id);
-  const now = serverNow();
-  const countdown = Math.ceil((turn.startsAt - now) / 1000);
+  const countdown = Math.ceil((turn.startsAt - serverNow()) / 1000);
   return (
-    <Ticket kind="duel" seed={turn.card.id} title={`⚔️ ${a?.name} contre ${b?.name}`}>
+    <Ticket kind="duel" seed={turn.card.id} title={t(`⚔️ ${a?.name} contre ${b?.name}`, `⚔️ ${a?.name} vs. ${b?.name}`)}>
       {countdown > 0 ? (
         <motion.div key={countdown} className="countdown-big" initial={{ scale: 1.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
           {countdown}
         </motion.div>
       ) : (
         <QuizFace card={turn.card}>
-          <TimeBar deadline={turn.deadline} total={T.duel} />
+          <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).duel} />
           <Options card={turn.card} disabled={!inDuel || locked || busy} onPick={(i) => act({ type: 'duelAnswer', choice: i })} />
-          {locked && <p className="muted">Raté ! Croise les doigts…</p>}
-          {!inDuel && <p className="muted">Tu regardes le duel. Qui sera le plus rapide ?</p>}
+          {locked && <p className="muted">{t('Raté ! Croise les doigts…', 'Missed! Cross your fingers…')}</p>}
+          {!inDuel && <p className="muted">{t('Tu regardes le duel. Qui sera le plus rapide ?', 'You’re watching the duel. Who will be faster?')}</p>}
         </QuizFace>
       )}
     </Ticket>
@@ -304,32 +347,42 @@ function DuelPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
 // ─── Parler ──────────────────────────────────────────────────
 
 function SpeakPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'speak' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const mine = me?.id === turn.pid;
+  const tt = timersFor(room.durationMin);
   return (
     <>
       <Ticket kind="parle" seed={turn.card.id}>
-        <div className="ticket-ask">{mine ? 'À toi de parler !' : `${p?.name} parle…`}</div>
-        <h3 className="ticket-q">{turn.card.prompt}</h3>
-        <span className="ticket-focus">🎯 {turn.card.focus}</span>
-        <TimeBar deadline={turn.deadline} total={T.speakRead + turn.card.seconds * 1000} />
+        <div className="ticket-ask">{mine ? t('À toi de parler !', 'Your turn to talk!') : t(`${p?.name} parle…`, `${p?.name} is talking…`)}</div>
+        <h3 className="ticket-q">{t(turn.card.prompt, turn.card.en.prompt)}</h3>
+        <span className="ticket-focus">🎯 {t(turn.card.focus, turn.card.en.focus)}</span>
+        <TimeBar deadline={turn.deadline} total={tt.speakRead + turn.card.seconds * 1000} />
         {mine ? (
           <button className="btn vert block" disabled={busy} onClick={() => act({ type: 'doneSpeaking' })}>
-            J’ai fini ! On vote ✋
+            {t('J’ai fini ! On vote ✋', 'I’m done! Let’s vote ✋')}
           </button>
         ) : (
           <p className="muted" style={{ margin: 0 }}>
-            Écoute bien : tu vas voter. Est-ce que {p?.name} parle <b>100 % en français</b>, avec le bon temps ?
+            {t(
+              <>
+                Écoute bien : tu vas voter. Est-ce que {p?.name} parle <b>100 % en français</b>, avec le bon temps ?
+              </>,
+              <>
+                Listen carefully: you’re going to vote. Is {p?.name} speaking <b>100% in French</b>, with the right tense?
+              </>,
+            )}
           </p>
         )}
       </Ticket>
       {mine ? (
-        <Say label="Astuce">
-          Commence par <q>Alors…</q>, <q>D’abord…</q>, <q>Ensuite…</q>, <q>Finalement…</q>
+        <Say label={t('Astuce', 'Tip')}>
+          {t('Commence par', 'Start with')} <q lang="fr">Alors…</q>, <q lang="fr">D’abord…</q>, <q lang="fr">Ensuite…</q>, <q lang="fr">Finalement…</q>
+          {t(null, <span className="gloss"> (So… First… Next… Finally…)</span>)}
         </Say>
       ) : (
         <Say>
-          <q>Et après, qu’est-ce qui s’est passé ?</q> — pose une question !
+          <q lang="fr">Et après, qu’est-ce qui s’est passé ?</q> {t('— pose une question !', '(And then what happened?) — ask a question!')}
         </Say>
       )}
     </>
@@ -337,22 +390,23 @@ function SpeakPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, {
 }
 
 function VotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'vote' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   const mine = me?.id === turn.pid;
   const myVote = me ? turn.votes[me.id] : undefined;
   const voters = room.players.filter((q) => q.id !== turn.pid);
   return (
-    <Ticket kind="parle" seed={`${turn.card.id}-vote`} title="Le vote">
-      <div className="ticket-ask">{turn.card.focus}</div>
-      <h3 className="ticket-q">{mine ? 'Les autres votent…' : `Est-ce que ${p?.name} a bien parlé français ?`}</h3>
-      <TimeBar deadline={turn.deadline} total={T.vote} />
+    <Ticket kind="parle" seed={`${turn.card.id}-vote`} title={t('Le vote', 'The vote')}>
+      <div className="ticket-ask">{t(turn.card.focus, turn.card.en.focus)}</div>
+      <h3 className="ticket-q">{mine ? t('Les autres votent…', 'The others are voting…') : t(`Est-ce que ${p?.name} a bien parlé français ?`, `Did ${p?.name} speak good French?`)}</h3>
+      <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).vote} />
       {!mine && me && (
         <div className="vote-row">
           <button className={`btn ${myVote === true ? 'vert' : 'ghost'}`} disabled={busy} onClick={() => act({ type: 'vote', yes: true })}>
-            👏 Bravo !
+            👏 {t('Bravo !', 'Great!')}
           </button>
           <button className={`btn ${myVote === false ? 'rouge' : 'ghost'}`} disabled={busy} onClick={() => act({ type: 'vote', yes: false })}>
-            🤏 Pas encore
+            🤏 {t('Pas encore', 'Not yet')}
           </button>
         </div>
       )}
@@ -364,7 +418,7 @@ function VotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
         ))}
       </div>
       <p className="muted" style={{ marginBottom: 0 }}>
-        Chaque « Bravo » = +1 🥐 (maximum 3).
+        {t('Chaque « Bravo » = +1 🥐 (maximum 3).', 'Each “Bravo” = +1 🥐 (3 max).')}
       </p>
     </Ticket>
   );
@@ -373,15 +427,17 @@ function VotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { 
 // ─── Tour de table ───────────────────────────────────────────
 
 function TablePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'table_speak' }> }) {
+  const t = useT();
   const idx = room.players.findIndex((q) => q.id === turn.pid);
   const order = [...room.players.slice(idx), ...room.players.slice(0, idx)];
   const canClose = me?.id === turn.pid || me?.id === room.hostId;
+  const host = byId(room, turn.pid)?.name;
   return (
     <>
       <Ticket kind="table" seed={turn.card.id}>
-        <div className="ticket-ask">Tout le monde répond !</div>
-        <h3 className="ticket-q">{turn.card.prompt}</h3>
-        <span className="ticket-focus">🎯 {turn.card.focus}</span>
+        <div className="ticket-ask">{t('Tout le monde répond !', 'Everyone answers!')}</div>
+        <h3 className="ticket-q">{t(turn.card.prompt, turn.card.en.prompt)}</h3>
+        <span className="ticket-focus">🎯 {t(turn.card.focus, turn.card.en.focus)}</span>
         <div className="order">
           {order.map((q, i) => (
             <span key={q.id} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
@@ -392,35 +448,35 @@ function TablePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, {
             </span>
           ))}
         </div>
-        <TimeBar deadline={turn.deadline} total={T.tableSpeak} />
+        <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).tableSpeak} />
         {canClose ? (
           <button className="btn jaune block" disabled={busy} onClick={() => act({ type: 'tableDone' })}>
-            Tout le monde a parlé → On vote !
+            {t('Tout le monde a parlé → On vote !', 'Everyone’s spoken → Let’s vote!')}
           </button>
         ) : (
           <p className="muted" style={{ margin: 0 }}>
-            Quand tout le monde a répondu, {byId(room, turn.pid)?.name} lance le vote.
+            {t(`Quand tout le monde a répondu, ${host} lance le vote.`, `When everyone has answered, ${host} starts the vote.`)}
           </p>
         )}
       </Ticket>
       <Say>
-        <q>Et toi, qu’est-ce que tu en penses ?</q>
+        <q lang="fr">Et toi, qu’est-ce que tu en penses ?</q>
+        {t(null, <span className="gloss"> — And you, what do you think?</span>)}
       </Say>
     </>
   );
 }
 
 function TableVotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'table_vote' }> }) {
+  const t = useT();
   const myVote = me ? turn.votes[me.id] : undefined;
-  const counts: Record<string, number> = {};
-  Object.values(turn.votes).forEach((t) => (counts[t] = (counts[t] ?? 0) + 1));
   return (
-    <Ticket kind="table" seed={`${turn.card.id}-vote`} title="Meilleure réponse">
-      <div className="ticket-ask">Vote pour la meilleure réponse (pas la tienne !)</div>
+    <Ticket kind="table" seed={`${turn.card.id}-vote`} title={t('Meilleure réponse', 'Best answer')}>
+      <div className="ticket-ask">{t('Vote pour la meilleure réponse (pas la tienne !)', 'Vote for the best answer (not your own!)')}</div>
       <h3 className="ticket-q" style={{ fontSize: '1.2rem' }}>
-        {turn.card.prompt}
+        {t(turn.card.prompt, turn.card.en.prompt)}
       </h3>
-      <TimeBar deadline={turn.deadline} total={T.tableVote} />
+      <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).tableVote} />
       <div className="picks">
         {room.players.map((q) => (
           <button
@@ -431,14 +487,14 @@ function TableVotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Tur
           >
             <Av p={q} />
             {q.name}
-            {q.id === me?.id && <small className="muted"> (toi)</small>}
+            {q.id === me?.id && <small className="muted"> {t('(toi)', '(you)')}</small>}
           </button>
         ))}
       </div>
       <div className="voters">
         {room.players.map((q) => (
           <span key={q.id} className={`voter${q.id in turn.votes ? ' done' : ''}`}>
-            {q.avatar} {q.id in turn.votes ? 'a voté ✓' : '…'}
+            {q.avatar} {q.id in turn.votes ? t('a voté ✓', 'voted ✓') : '…'}
           </span>
         ))}
       </div>
@@ -449,18 +505,19 @@ function TableVotePanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Tur
 // ─── Surprise & TGV ──────────────────────────────────────────
 
 function EventPanel({ room, turn }: { room: Room; turn: Extract<Turn, { phase: 'event' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   return (
-    <Ticket kind="chance" seed={turn.card.id} title="✨ Surprise !">
+    <Ticket kind="chance" seed={turn.card.id} title={t('✨ Surprise !', '✨ Surprise!')}>
       <motion.div initial={{ rotateY: 90 }} animate={{ rotateY: 0 }} transition={{ duration: 0.5 }}>
-        <div className="ticket-ask">Pour {p?.name}</div>
-        <h3 className="ticket-q">{turn.card.title}</h3>
-        <p style={{ fontSize: '1.08rem', marginTop: -4 }}>{turn.card.text}</p>
-        <TimeBar deadline={turn.deadline} total={T.event} label={false} />
+        <div className="ticket-ask">{t(`Pour ${p?.name}`, `For ${p?.name}`)}</div>
+        <h3 className="ticket-q">{t(turn.card.title, turn.card.en.title)}</h3>
+        <p style={{ fontSize: '1.08rem', marginTop: -4 }}>{t(turn.card.text, turn.card.en.text)}</p>
+        <TimeBar deadline={turn.deadline} total={timersFor(room.durationMin).event} label={false} />
       </motion.div>
       {turn.card.effect.kind === 'birthday' && (
         <Say>
-          <q>Joyeux anniversaire, {p?.name} !</q> — chantez tous ensemble !
+          <q lang="fr">Joyeux anniversaire, {p?.name} !</q> {t('— chantez tous ensemble !', '— everybody sing together!')}
         </Say>
       )}
     </Ticket>
@@ -468,16 +525,20 @@ function EventPanel({ room, turn }: { room: Room; turn: Extract<Turn, { phase: '
 }
 
 function TgvPanel({ room, turn }: { room: Room; turn: Extract<Turn, { phase: 'tgv' }> }) {
+  const t = useT();
   const p = byId(room, turn.pid);
   return (
-    <Ticket kind="gare" seed={`tgv-${turn.startsAt}`} title="🚄 TGV Grande Vitesse">
-      <div className="ticket-ask">{p?.name} prend le train</div>
+    <Ticket kind="gare" seed={`tgv-${turn.startsAt}`} title={t('🚄 TGV Grande Vitesse', '🚄 TGV high-speed train')}>
+      <div className="ticket-ask">{t(`${p?.name} prend le train`, `${p?.name} takes the train`)}</div>
       <h3 className="ticket-q">
         {cityAt(turn.from)} <span style={{ color: 'var(--rouge)' }}>→</span> {cityAt(turn.to)}
       </h3>
-      <p style={{ marginTop: -4 }}>Six cases d’un coup ! {turn.to === 0 && 'Et un tour de France complet : +3 🥐 !'}</p>
+      <p style={{ marginTop: -4 }}>
+        {t('Six cases d’un coup !', 'Six spaces in one go!')} {turn.to === 0 && t('Et un tour de France complet : +3 🥐 !', 'And a full lap of France: +3 🥐!')}
+      </p>
       <Say>
-        <q>Mesdames et messieurs, bienvenue à bord du TGV à destination de {cityAt(turn.to)}.</q>
+        <q lang="fr">Mesdames et messieurs, bienvenue à bord du TGV à destination de {cityAt(turn.to)}.</q>
+        {t(null, <span className="gloss"> — Ladies and gentlemen, welcome aboard the TGV to {cityAt(turn.to)}.</span>)}
       </Say>
     </Ticket>
   );
@@ -486,6 +547,7 @@ function TgvPanel({ room, turn }: { room: Room; turn: Extract<Turn, { phase: 'tg
 // ─── Résultat ────────────────────────────────────────────────
 
 function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, { phase: 'reveal' }> }) {
+  const t = useT();
   const o = turn.outcome;
   const p = byId(room, turn.pid);
   const canGo = me?.id === turn.pid || me?.id === room.hostId;
@@ -494,11 +556,11 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
     <div style={{ display: 'grid', gap: 8 }}>
       {canGo && (
         <button className="btn block" disabled={busy} onClick={() => act({ type: 'continue' })}>
-          Au suivant ➜
+          {t('Au suivant ➜', 'Next ➜')}
         </button>
       )}
       <p className="muted" style={{ margin: 0, textAlign: 'center' }}>
-        Tour suivant dans {left} s
+        {t(`Tour suivant dans ${left} s`, `Next turn in ${left} s`)}
       </p>
     </div>
   );
@@ -507,8 +569,13 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
     const stealer = byId(room, o.stealer);
     const tags: Record<number, string> = {};
     if (o.choice >= 0) tags[o.choice] = `${p?.name}`;
-    if (stealer && o.stealChoice !== undefined) tags[o.stealChoice] = `volé par ${stealer.name}`;
-    const stamp = o.correct ? { ok: true, text: 'Composté ✓' } : stealer ? { ok: true, text: 'Volé !' } : { ok: false, text: 'Refusé' };
+    if (stealer && o.stealChoice !== undefined) tags[o.stealChoice] = t(`volé par ${stealer.name}`, `stolen by ${stealer.name}`);
+    const stamp = o.correct
+      ? { ok: true, text: t('Composté ✓', 'Stamped ✓') }
+      : stealer
+        ? { ok: true, text: t('Volé !', 'Stolen!') }
+        : { ok: false, text: t('Refusé', 'Rejected') };
+    const answer = o.card.options[o.card.answer];
     return (
       <>
         <Ticket kind={o.card.cat} seed={o.card.id} stamp={stamp}>
@@ -519,14 +586,21 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
                 <Listen text={o.card.audio} />
               </div>
             )}
-            <div className="explain">
-              <span>💡</span>
-              <span>{o.card.x}</span>
-            </div>
+            <Explain card={o.card} />
           </QuizFace>
         </Ticket>
         <Say>
-          {o.correct ? <q>Bien joué, {p?.name} !</q> : stealer ? <q>Bravo {stealer.name}, bien volé !</q> : <q>Dommage ! La bonne réponse, c’est « {o.card.options[o.card.answer]} ».</q>}
+          {o.correct ? (
+            <q lang="fr">Bien joué, {p?.name} !</q>
+          ) : stealer ? (
+            <q lang="fr">Bravo {stealer.name}, bien volé !</q>
+          ) : (
+            <q lang="fr">Dommage ! La bonne réponse, c’est « {answer} ».</q>
+          )}
+          {t(
+            null,
+            <span className="gloss"> — {o.correct ? `Nice job, ${p?.name}!` : stealer ? `Well stolen, ${stealer.name}!` : `Too bad! The right answer is “${answer}”.`}</span>,
+          )}
         </Say>
         {next}
       </>
@@ -537,13 +611,10 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
     const w = byId(room, o.winner);
     return (
       <>
-        <Ticket kind="duel" seed={o.card.id} stamp={w ? { ok: true, text: `${w.name} gagne` } : { ok: false, text: 'Égalité' }}>
+        <Ticket kind="duel" seed={o.card.id} stamp={w ? { ok: true, text: t(`${w.name} gagne`, `${w.name} wins`) } : { ok: false, text: t('Égalité', 'Tie') }}>
           <QuizFace card={o.card}>
             <Options card={o.card} disabled reveal={{ answer: o.card.answer, wrong: [] }} />
-            <div className="explain">
-              <span>💡</span>
-              <span>{o.card.x}</span>
-            </div>
+            <Explain card={o.card} />
           </QuizFace>
         </Ticket>
         {next}
@@ -555,19 +626,24 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
     return (
       <>
         <Ticket kind="parle" seed={`${o.card.id}-r`} stamp={o.gained > 0 ? { ok: true, text: `+${o.gained} 🥐` } : { ok: false, text: '0 🥐' }}>
-          <div className="ticket-ask">{p?.name} a parlé</div>
+          <div className="ticket-ask">{t(`${p?.name} a parlé`, `${p?.name} spoke`)}</div>
           <h3 className="ticket-q" style={{ fontSize: '1.2rem' }}>
-            {o.card.prompt}
+            {t(o.card.prompt, o.card.en.prompt)}
           </h3>
           <div className="big-result">
             <div className="n">
               {o.yes} 👏 · {o.no} 🤏
             </div>
-            <p>{o.gained > 0 ? `${p?.name} gagne ${o.gained} croissant${o.gained > 1 ? 's' : ''} !` : 'Pas de croissant cette fois… Courage !'}</p>
+            <p>
+              {o.gained > 0
+                ? t(`${p?.name} gagne ${o.gained} croissant${o.gained > 1 ? 's' : ''} !`, `${p?.name} wins ${o.gained} croissant${o.gained > 1 ? 's' : ''}!`)
+                : t('Pas de croissant cette fois… Courage !', 'No croissant this time… Keep going!')}
+            </p>
           </div>
         </Ticket>
         <Say>
-          <q>{o.gained > 0 ? 'Chapeau ! Tu parles super bien.' : 'Ce n’est pas grave, on progresse !'}</q>
+          <q lang="fr">{o.gained > 0 ? 'Chapeau ! Tu parles super bien.' : 'Ce n’est pas grave, on progresse !'}</q>
+          {t(null, <span className="gloss"> — {o.gained > 0 ? 'Hats off! You speak really well.' : 'No big deal, we’re getting better!'}</span>)}
         </Say>
         {next}
       </>
@@ -577,9 +653,9 @@ function RevealPanel({ room, me, act, busy, turn }: Ctx & { turn: Extract<Turn, 
   const winners = o.winners.map((id) => byId(room, id)).filter(Boolean) as Player[];
   return (
     <>
-      <Ticket kind="table" seed={`${o.card.id}-r`} stamp={winners.length ? { ok: true, text: '+2 🥐' } : { ok: false, text: 'Aucun vote' }}>
-        <div className="ticket-ask">Meilleure réponse</div>
-        <h3 className="ticket-q">{winners.length ? winners.map((w) => w.name).join(' et ') : 'Personne…'}</h3>
+      <Ticket kind="table" seed={`${o.card.id}-r`} stamp={winners.length ? { ok: true, text: '+2 🥐' } : { ok: false, text: t('Aucun vote', 'No votes') }}>
+        <div className="ticket-ask">{t('Meilleure réponse', 'Best answer')}</div>
+        <h3 className="ticket-q">{winners.length ? winners.map((w) => w.name).join(t(' et ', ' and ')) : t('Personne…', 'Nobody…')}</h3>
         <div className="voters">
           {room.players.map((q) => (
             <span key={q.id} className={`voter${o.winners.includes(q.id) ? ' done' : ''}`}>
@@ -635,4 +711,3 @@ export function cardOpen(room: Room): boolean {
   if ('startsAt' in t && serverNow() < t.startsAt && t.phase !== 'duel') return false;
   return true;
 }
-

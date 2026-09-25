@@ -1,6 +1,7 @@
 // Types partagés entre le serveur (api/) et le client (src/).
 
 export type QuizCat = 'pp' | 'etre' | 'temps' | 'vocab';
+export type Mode = 'plateau' | 'combat' | 'sprint';
 export type SpaceKind = QuizCat | 'parle' | 'table' | 'duel' | 'chance' | 'gare' | 'depart';
 
 export interface QuizCard {
@@ -18,6 +19,8 @@ export interface QuizCard {
   x: string;
   /** Texte lu à voix haute (synthèse vocale) pour les cartes d'écoute */
   audio?: string;
+  /** Traduction anglaise (bouton 👀 English) — les options restent en français */
+  en: { ask: string; q: string; x: string };
 }
 
 export interface SpeakCard {
@@ -26,18 +29,21 @@ export interface SpeakCard {
   /** Temps / structure à utiliser */
   focus: string;
   seconds: number;
+  en: { prompt: string; focus: string };
 }
 
 export interface TableCard {
   id: string;
   prompt: string;
   focus: string;
+  en: { prompt: string; focus: string };
 }
 
 export interface EventCard {
   id: string;
   title: string;
   text: string;
+  en: { title: string; text: string };
   effect:
     | { kind: 'score'; amount: number }
     | { kind: 'move'; steps: number }
@@ -76,6 +82,7 @@ export interface DealtQuiz {
   answer: number;
   x: string;
   audio?: string;
+  en: { ask: string; q: string; x: string };
 }
 
 export type Turn =
@@ -148,7 +155,53 @@ export interface LogEntry {
   id: number;
   at: number;
   text: string;
+  en?: string;
   tone?: 'good' | 'bad' | 'info';
+}
+
+/** Résultat de la dernière réponse d'un combattant (pour l'animation). */
+export interface FightResult {
+  id: number;
+  ok: boolean;
+  dmg: number;
+  choice: number;
+  card: DealtQuiz;
+  at: number;
+}
+
+export interface Fighter {
+  hp: number;
+  combo: number;
+  bestCombo: number;
+  target: string | null;
+  q: DealtQuiz;
+  qAt: number;
+  stunUntil: number;
+  hits: number;
+  misses: number;
+  dmg: number;
+  kos: number;
+  koAt: number;
+  lastHit: { id: number; by: string; dmg: number; at: number } | null;
+  lastResult: FightResult | null;
+}
+
+export interface CombatState {
+  startsAt: number;
+  fighters: Record<string, Fighter>;
+  winners: string[];
+}
+
+export interface SprintState {
+  startsAt: number;
+  round: number;
+  q: DealtQuiz;
+  qAt: number;
+  deadline: number;
+  answers: Record<string, { choice: number; at: number; ok: boolean; pts: number }>;
+  /** 0 tant que la question est ouverte, sinon fin de l'écran de réponse */
+  revealUntil: number;
+  firstId: string | null;
 }
 
 export interface RoomBase<P> {
@@ -157,6 +210,7 @@ export interface RoomBase<P> {
   createdAt: number;
   hostId: string;
   status: 'lobby' | 'playing' | 'ended';
+  mode: Mode;
   durationMin: number;
   startedAt: number;
   endsAt: number;
@@ -169,6 +223,8 @@ export interface RoomBase<P> {
   lastVerdict: Verdict | null;
   log: LogEntry[];
   seq: number;
+  combat: CombatState | null;
+  sprint: SprintState | null;
 }
 
 export type ServerRoom = RoomBase<ServerPlayer> & { used: Record<string, string[]> };
@@ -177,6 +233,10 @@ export type Room = RoomBase<Player>;
 export type Action =
   | { type: 'start'; durationMin: number }
   | { type: 'setDuration'; durationMin: number }
+  | { type: 'setMode'; mode: Mode }
+  | { type: 'fight'; choice: number }
+  | { type: 'target'; target: string }
+  | { type: 'sprintAnswer'; choice: number }
   | { type: 'kick'; target: string }
   | { type: 'roll' }
   | { type: 'answer'; choice: number }
@@ -198,4 +258,5 @@ export interface RoomResponse {
   now: number;
   you?: { id: string; token: string };
   error?: string;
+  errorEn?: string;
 }

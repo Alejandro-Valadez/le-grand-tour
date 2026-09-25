@@ -1,35 +1,46 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
-import { T } from '../../shared/engine';
+import { timersFor } from '../../shared/engine';
 import type { Player, Room } from '../../shared/types';
 import { buzz, canSpeak, isMuted, setMuted, sfx, speakFrench } from '../fx';
 import { navigate, serverNow } from '../hooks';
+import { useT } from '../peek';
 import type { Act } from './Dock';
 import { Av, FlagFR, FlagUK, PHRASES, Sheet, TimeBar } from './ui';
 
 const byId = (room: Room, id?: string) => room.players.find((p) => p.id === id);
 
+function CloseBtn({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  return (
+    <button className="icon-btn" onClick={onClose} aria-label={t('Fermer', 'Close')}>
+      ✕
+    </button>
+  );
+}
+
 // ─── « Anglais ! » ──────────────────────────────────────────
 
 export function AccusePicker({ room, me, act, onClose }: { room: Room; me: Player; act: Act; onClose: () => void }) {
+  const t = useT();
   const wait = Math.max(0, Math.ceil((me.accuseReadyAt - serverNow()) / 1000));
+  const tt = timersFor(room.durationMin);
+  const penalty = room.mode === 'combat' ? t('10 PV', '10 HP') : '1 🥐';
   return (
-    <Sheet onClose={onClose} label="Accuser un joueur">
+    <Sheet onClose={onClose} label={t('Accuser un joueur', 'Accuse a player')}>
       <div className="sheet-head">
         <h2>
-          <FlagUK size={26} /> Anglais ?!
+          <FlagUK size={26} /> {t('Anglais ?!', 'English?!')}
         </h2>
-        <button className="icon-btn" onClick={onClose} aria-label="Fermer">
-          ✕
-        </button>
+        <CloseBtn onClose={onClose} />
       </div>
       <p>
-        Quelqu’un a parlé anglais ? Accuse-le ! Les autres joueurs votent. Si la majorité est d’accord, il perd <b>1 🥐</b>.
+        {t('Quelqu’un a parlé anglais ? Accuse-le ! Les autres joueurs votent. Si la majorité est d’accord, il perd', 'Did someone speak English? Accuse them! The other players vote. If the majority agrees, they lose')} <b>{penalty}</b>.
       </p>
       {wait > 0 ? (
-        <p className="error">Tu dois attendre encore {wait} s avant d’accuser quelqu’un.</p>
+        <p className="error">{t(`Tu dois attendre encore ${wait} s avant d’accuser quelqu’un.`, `You have to wait ${wait} more seconds before accusing someone.`)}</p>
       ) : room.accusation ? (
-        <p className="error">Un vote est déjà en cours !</p>
+        <p className="error">{t('Un vote est déjà en cours !', 'A vote is already happening!')}</p>
       ) : (
         <div className="picks">
           {room.players
@@ -49,13 +60,14 @@ export function AccusePicker({ room, me, act, onClose }: { room: Room; me: Playe
         </div>
       )}
       <p className="muted" style={{ marginBottom: 0 }}>
-        Attention : une accusation toutes les {T.accuseCooldown / 1000} secondes maximum. Sois juste !
+        {t(`Attention : une accusation toutes les ${tt.accuseCooldown / 1000} secondes maximum. Sois juste !`, `Careful: one accusation every ${tt.accuseCooldown / 1000} seconds at most. Be fair!`)}
       </p>
     </Sheet>
   );
 }
 
 export function AccusationModal({ room, me, act, busy }: { room: Room; me: Player | null; act: Act; busy: boolean }) {
+  const t = useT();
   const a = room.accusation;
   const buzzed = useRef<number>(-1);
   useEffect(() => {
@@ -75,31 +87,29 @@ export function AccusationModal({ room, me, act, busy }: { room: Room; me: Playe
   const voters = room.players.filter((p) => p.id !== a.target);
 
   return (
-    <Sheet label="Accusation">
+    <Sheet label={t('Accusation', 'Accusation')}>
       <div className="accuse-card">
         <div className="flags">
           <FlagUK size={40} /> ❓ <FlagFR size={40} />
         </div>
-        <h2>{isTarget ? 'On t’accuse !' : `${target.name} a parlé anglais ?`}</h2>
-        <p>
-          <b>{by.name}</b> accuse <b>{target.name}</b> d’avoir parlé anglais.
-        </p>
+        <h2>{isTarget ? t('On t’accuse !', 'You’re accused!') : t(`${target.name} a parlé anglais ?`, `Did ${target.name} speak English?`)}</h2>
+        <p>{t(`${by.name} accuse ${target.name} d’avoir parlé anglais.`, `${by.name} accuses ${target.name} of speaking English.`)}</p>
         <div style={{ textAlign: 'left' }}>
-          <TimeBar deadline={a.deadline} total={T.accuse} />
+          <TimeBar deadline={a.deadline} total={timersFor(room.durationMin).accuse} />
         </div>
         {isTarget ? (
           <p className="say" style={{ justifyContent: 'center' }}>
-            Défends-toi… en français ! <q>Ce n’est pas vrai ! J’ai parlé français !</q>
+            {t('Défends-toi… en français !', 'Defend yourself… in French!')} <q lang="fr">Ce n’est pas vrai ! J’ai parlé français !</q>
           </p>
         ) : isAccuser ? (
-          <p className="muted">Les autres votent…</p>
+          <p className="muted">{t('Les autres votent…', 'The others are voting…')}</p>
         ) : me ? (
           <div className="vote-row">
             <button className={`btn ${myVote === true ? 'rouge' : 'ghost'}`} disabled={busy} onClick={() => act({ type: 'accuseVote', yes: true })}>
-              Coupable !
+              {t('Coupable !', 'Guilty!')}
             </button>
             <button className={`btn ${myVote === false ? 'vert' : 'ghost'}`} disabled={busy} onClick={() => act({ type: 'accuseVote', yes: false })}>
-              Innocent(e)
+              {t('Innocent(e)', 'Not guilty')}
             </button>
           </div>
         ) : null}
@@ -116,6 +126,7 @@ export function AccusationModal({ room, me, act, busy }: { room: Room; me: Playe
 }
 
 export function VerdictStamp({ room }: { room: Room }) {
+  const t = useT();
   const v = room.lastVerdict;
   const [show, setShow] = useState<typeof v>(null);
   const seen = useRef(v?.id ?? -1);
@@ -126,11 +137,12 @@ export function VerdictStamp({ room }: { room: Room }) {
     setShow(v);
     sfx.stamp();
     if (v.guilty) sfx.bad();
-    const t = setTimeout(() => setShow(null), 2600);
-    return () => clearTimeout(t);
+    const tm = setTimeout(() => setShow(null), 2600);
+    return () => clearTimeout(tm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v?.id]);
   const target = show ? byId(room, show.target) : null;
+  const penalty = room.mode === 'combat' ? t('−10 PV', '−10 HP') : '−1 🥐';
   return (
     <AnimatePresence>
       {show && (
@@ -142,9 +154,9 @@ export function VerdictStamp({ room }: { room: Room }) {
             animate={{ scale: 1, rotate: -8, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 420, damping: 16 }}
           >
-            {show.guilty ? 'Coupable !' : 'Innocent !'}
+            {show.guilty ? t('Coupable !', 'Guilty!') : t('Innocent !', 'Not guilty!')}
             <small>
-              {target?.name} {show.guilty ? '−1 🥐' : 'a bien parlé français ✅'}
+              {target?.name} {show.guilty ? penalty : t('a bien parlé français ✅', 'really spoke French ✅')}
             </small>
           </motion.div>
         </motion.div>
@@ -155,23 +167,33 @@ export function VerdictStamp({ room }: { room: Room }) {
 
 // ─── Phrases utiles ─────────────────────────────────────────
 
-export function PhrasesSheet({ onClose }: { onClose: () => void }) {
+export function PhraseChips() {
+  const t = useT();
   return (
-    <Sheet onClose={onClose} label="Phrases utiles">
-      <div className="sheet-head">
-        <h2>💬 Phrases utiles</h2>
-        <button className="icon-btn" onClick={onClose} aria-label="Fermer">
-          ✕
+    <div className="phrases">
+      {PHRASES.map(([fr, en]) => (
+        <button key={fr} className="phrase" onClick={() => speakFrench(fr, 0.9)} lang={t('fr', 'en')}>
+          {t(fr, en)}
         </button>
+      ))}
+    </div>
+  );
+}
+
+export function PhrasesSheet({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  return (
+    <Sheet onClose={onClose} label={t('Phrases utiles', 'Useful phrases')}>
+      <div className="sheet-head">
+        <h2>💬 {t('Phrases utiles', 'Useful phrases')}</h2>
+        <CloseBtn onClose={onClose} />
       </div>
-      <p className="muted">{canSpeak() ? 'Touche une phrase pour l’entendre. Puis dis-la à voix haute !' : 'Utilise ces phrases pendant le jeu !'}</p>
-      <div className="phrases">
-        {PHRASES.map((p) => (
-          <button key={p} className="phrase" onClick={() => speakFrench(p, 0.9)}>
-            {p}
-          </button>
-        ))}
-      </div>
+      <p className="muted">
+        {canSpeak()
+          ? t('Touche une phrase pour l’entendre. Puis dis-la à voix haute !', 'Tap a phrase to hear it in French. Then say it out loud!')
+          : t('Utilise ces phrases pendant le jeu !', 'Use these phrases during the game!')}
+      </p>
+      <PhraseChips />
     </Sheet>
   );
 }
@@ -193,6 +215,7 @@ export function MenuSheet({
   onPhrases: () => void;
   onLeave: () => void;
 }) {
+  const t = useT();
   const [mute, setMute] = useState(isMuted());
   const [confirmEnd, setConfirmEnd] = useState(false);
   const isHost = me?.id === room.hostId;
@@ -200,22 +223,20 @@ export function MenuSheet({
     <Sheet onClose={onClose} label="Menu">
       <div className="sheet-head">
         <h2>Menu</h2>
-        <button className="icon-btn" onClick={onClose} aria-label="Fermer">
-          ✕
-        </button>
+        <CloseBtn onClose={onClose} />
       </div>
       <div className="menu-list">
         <button className="btn ghost block" onClick={onPhrases}>
-          💬 Phrases utiles
+          💬 {t('Phrases utiles', 'Useful phrases')}
         </button>
         <a className="btn ghost block" href="/regles" target="_blank" rel="noreferrer">
-          📜 Règles du jeu
+          📜 {t('Règles du jeu', 'Game rules')}
         </a>
         <a className="btn ghost block" href="/aide" target="_blank" rel="noreferrer">
-          🏠 Aide-mémoire
+          🏠 {t('Aide-mémoire', 'Cheat sheet')}
         </a>
         <a className="btn ghost block" href={`/tv/${room.code}`} target="_blank" rel="noreferrer">
-          📺 Mode projecteur
+          📺 {t('Mode projecteur', 'Projector mode')}
         </a>
         <button
           className="btn ghost block"
@@ -224,11 +245,11 @@ export function MenuSheet({
             setMute(!mute);
           }}
         >
-          {mute ? '🔇 Son coupé' : '🔊 Son activé'}
+          {mute ? t('🔇 Son coupé', '🔇 Sound off') : t('🔊 Son activé', '🔊 Sound on')}
         </button>
         {isHost && room.status === 'playing' && (
           <>
-            <div className="section-title">Hôte</div>
+            <div className="section-title">{t('Hôte', 'Host')}</div>
             {room.players
               .filter((p) => p.id !== me?.id)
               .map((p) => (
@@ -236,7 +257,7 @@ export function MenuSheet({
                   <span className="av">{p.avatar}</span>
                   <span className="nm">{p.name}</span>
                   <button className="btn small ghost" style={{ marginLeft: 'auto' }} onClick={() => act({ type: 'kick', target: p.id })}>
-                    Retirer
+                    {t('Retirer', 'Remove')}
                   </button>
                 </div>
               ))}
@@ -248,21 +269,23 @@ export function MenuSheet({
                   onClose();
                 }}
               >
-                Oui, terminer maintenant
+                {t('Oui, terminer maintenant', 'Yes, end it now')}
               </button>
             ) : (
               <button className="btn rouge block" onClick={() => setConfirmEnd(true)}>
-                🏁 Terminer la partie
+                🏁 {t('Terminer la partie', 'End the game')}
               </button>
             )}
           </>
         )}
-        <div className="section-title">Partie {room.code}</div>
+        <div className="section-title">
+          {t('Partie', 'Game')} {room.code}
+        </div>
         <button className="btn ghost block" onClick={onLeave}>
-          🚪 Quitter (cet appareil)
+          🚪 {t('Quitter (cet appareil)', 'Leave (this device)')}
         </button>
         <button className="btn ghost block" onClick={() => navigate('/')}>
-          🏡 Accueil
+          🏡 {t('Accueil', 'Home')}
         </button>
       </div>
     </Sheet>

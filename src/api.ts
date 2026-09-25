@@ -42,6 +42,7 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public data?: RoomResponse,
+    public en: string = message,
   ) {
     super(message);
   }
@@ -56,10 +57,10 @@ async function call(init: RequestInit & { query?: string }): Promise<RoomRespons
       cache: 'no-store',
     });
   } catch {
-    throw new ApiError('Pas de connexion… Vérifie le Wi-Fi !', 0);
+    throw new ApiError('Pas de connexion… Vérifie le Wi-Fi !', 0, undefined, 'No connection… Check the Wi-Fi!');
   }
   const data = (await res.json().catch(() => ({}))) as RoomResponse;
-  if (!res.ok) throw new ApiError(data.error || 'Erreur inconnue', res.status, data.room ? data : undefined);
+  if (!res.ok) throw new ApiError(data.error || 'Erreur inconnue', res.status, data.room ? data : undefined, data.errorEn || 'Unknown error');
   return data;
 }
 

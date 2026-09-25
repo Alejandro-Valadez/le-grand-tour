@@ -1,5 +1,5 @@
 // API unique du jeu : GET /api/room?code=ABCD  ·  POST /api/room { op, ... }
-import { addPlayer, advance, applyAction, createRoom, GameError, newToken, sanitize } from '../shared/engine.js';
+import { addPlayer, advance, applyAction, createRoom, GameError, sanitize } from '../shared/engine.js';
 import { getStore } from '../shared/store.js';
 import type { Action, ServerRoom } from '../shared/types.js';
 
@@ -13,32 +13,33 @@ const json = (data: unknown, status = 200) =>
   });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const NOT_FOUND = new GameError('Partie introuvable. Vérifie le code !', 'Game not found. Check the code!');
 
 function readCode(raw: unknown): string {
   const code = String(raw ?? '').trim().toUpperCase();
-  if (!CODE_RE.test(code)) throw new GameError('Le code doit avoir 4 lettres.');
+  if (!CODE_RE.test(code)) throw new GameError('Le code doit avoir 4 lettres.', 'The code must be 4 letters.');
   return code;
 }
 
-async function withRoom<R>(code: string, fn: (room: ServerRoom, now: number) => R): Promise<{ room: ServerRoom; result: R }> {
+/**
+ * Lit la partie, applique `fn`, puis écrit seulement si personne n’a écrit entre-temps
+ * (compare-and-set sur la version). En cas de conflit, on recommence avec l’état frais.
+ */
+async function withRoom<R>(code: string, fn: (room: ServerRoom, now: number) => R, initial?: ServerRoom) {
   const store = getStore();
-  const t = newToken();
-  let locked = false;
-  for (let i = 0; i < 80 && !locked; i++) {
-    locked = await store.lock(code, t);
-    if (!locked) await sleep(40 + Math.random() * 40);
-  }
-  if (!locked) throw new GameError('Le serveur est occupé. Réessaie !');
-  try {
-    const room = await store.get(code);
-    if (!room) throw new GameError('Partie introuvable. Vérifie le code !');
+  let room = initial ?? null;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    if (!room) room = await store.get(code);
+    if (!room) throw NOT_FOUND;
+    const prev = room.version;
     const now = Date.now();
     const result = fn(room, now);
-    await store.set(room);
-    return { room, result };
-  } finally {
-    await store.unlock(code, t);
+    room.version = prev + 1;
+    if (await store.cas(room, prev)) return { room, result };
+    room = null;
+    await sleep(20 + Math.random() * 60);
   }
+  throw new GameError('Le serveur est occupé. Réessaie !', 'The server is busy. Try again!');
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -47,12 +48,12 @@ export async function GET(request: Request): Promise<Response> {
     const code = readCode(url.searchParams.get('code'));
     const store = getStore();
     let room = await store.get(code);
-    if (!room) return json({ error: 'Partie introuvable. Vérifie le code !' }, 404);
+    if (!room) throw NOT_FOUND;
 
     // Les délais expirés sont résolus paresseusement, par le premier client qui demande l’état.
     const probe: ServerRoom = structuredClone(room);
     if (advance(probe, Date.now())) {
-      ({ room } = await withRoom(code, (r, now) => advance(r, now)));
+      ({ room } = await withRoom(code, (r, now) => advance(r, now), room));
     }
     return json({ room: sanitize(room), now: Date.now(), store: store.kind });
   } catch (e) {
@@ -66,14 +67,14 @@ export async function POST(request: Request): Promise<Response> {
     const store = getStore();
 
     if (body.op === 'create') {
-      let code = '';
       for (let i = 0; i < 20; i++) {
-        code = Array.from({ length: 4 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join('');
-        if (!(await store.exists(code))) break;
+        const code = Array.from({ length: 4 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join('');
+        const { room, player } = createRoom(code, body.name, body.avatar, Date.now());
+        if (await store.create(room)) {
+          return json({ room: sanitize(room), now: Date.now(), you: { id: player.id, token: player.token } });
+        }
       }
-      const { room, player } = createRoom(code, body.name, body.avatar, Date.now());
-      await store.set(room);
-      return json({ room: sanitize(room), now: Date.now(), you: { id: player.id, token: player.token } });
+      throw new GameError('Impossible de créer la partie. Réessaie !', 'Couldn’t create the game. Try again!');
     }
 
     const code = readCode(body.code);
@@ -90,31 +91,31 @@ export async function POST(request: Request): Promise<Response> {
       const id = String(body.id ?? '');
       const token = String(body.token ?? '');
       const action = body.action as Action;
-      if (!action || typeof action !== 'object' || typeof action.type !== 'string') throw new GameError('Action invalide.');
-      let failure: GameError | null = null;
-      const { room } = await withRoom(code, (r, now) => {
+      if (!action || typeof action !== 'object' || typeof action.type !== 'string') throw new GameError('Action invalide.', 'Invalid action.');
+      const { room, result: failure } = await withRoom(code, (r, now) => {
         const me = r.players.find((p) => p.id === id);
-        if (!me || me.token !== token) throw new GameError('Tu ne fais plus partie de cette partie.');
+        if (!me || me.token !== token) throw new GameError('Tu ne fais plus partie de cette partie.', 'You’re no longer in this game.');
         advance(r, now);
         try {
           applyAction(r, id, action, now);
+          return null;
         } catch (e) {
-          if (e instanceof GameError) failure = e;
-          else throw e;
+          if (e instanceof GameError) return e;
+          throw e;
         }
       });
-      if (failure) return json({ error: (failure as GameError).message, room: sanitize(room), now: Date.now() }, 409);
+      if (failure) return json({ error: failure.message, errorEn: failure.en, room: sanitize(room), now: Date.now() }, 409);
       return json({ room: sanitize(room), now: Date.now() });
     }
 
-    return json({ error: 'Opération inconnue.' }, 400);
+    return json({ error: 'Opération inconnue.', errorEn: 'Unknown operation.' }, 400);
   } catch (e) {
     return errorResponse(e);
   }
 }
 
 function errorResponse(e: unknown): Response {
-  if (e instanceof GameError) return json({ error: e.message }, 400);
+  if (e instanceof GameError) return json({ error: e.message, errorEn: e.en }, e === NOT_FOUND ? 404 : 400);
   console.error(e);
-  return json({ error: 'Oups ! Erreur du serveur.' }, 500);
+  return json({ error: 'Oups ! Erreur du serveur.', errorEn: 'Oops! Server error.' }, 500);
 }

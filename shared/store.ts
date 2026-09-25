@@ -1,24 +1,30 @@
-// Stockage des parties : Upstash Redis en production, mémoire en local.
+// Stockage des parties : Redis (REDIS_URL ou Upstash) en production, mémoire en local.
+// Les écritures sont « optimistes » : on n'écrit que si la version n'a pas changé (compare-and-set).
 import { Redis } from '@upstash/redis';
 import { createClient, type RedisClientType } from 'redis';
 import type { ServerRoom } from './types.js';
 
 const ROOM_TTL_S = 60 * 60 * 12;
-const LOCK_TTL_MS = 5_000;
 
 export interface Store {
   kind: 'redis' | 'memory';
   get(code: string): Promise<ServerRoom | null>;
-  set(room: ServerRoom): Promise<void>;
-  exists(code: string): Promise<boolean>;
-  lock(code: string, token: string): Promise<boolean>;
-  unlock(code: string, token: string): Promise<void>;
+  /** Crée la partie seulement si le code est libre. */
+  create(room: ServerRoom): Promise<boolean>;
+  /** Écrit la partie seulement si la version stockée vaut encore `prevVersion`. */
+  cas(room: ServerRoom, prevVersion: number): Promise<boolean>;
 }
 
 const roomKey = (code: string) => `grandtour:room:${code}`;
-const lockKey = (code: string) => `grandtour:lock:${code}`;
 
-function redisStore(url: string, token: string): Store {
+// Une seule commande Redis par écriture : compare la version puis remplace.
+const CAS = `local cur = redis.call('GET', KEYS[1])
+if not cur then return -1 end
+if cjson.decode(cur).version ~= tonumber(ARGV[2]) then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[3]))
+return 1`;
+
+function upstashStore(url: string, token: string): Store {
   const redis = new Redis({ url, token, automaticDeserialization: false });
   return {
     kind: 'redis',
@@ -26,27 +32,17 @@ function redisStore(url: string, token: string): Store {
       const raw = await redis.get<string>(roomKey(code));
       return raw ? (JSON.parse(raw) as ServerRoom) : null;
     },
-    async set(room) {
-      await redis.set(roomKey(room.code), JSON.stringify(room), { ex: ROOM_TTL_S });
+    async create(room) {
+      return (await redis.set(roomKey(room.code), JSON.stringify(room), { ex: ROOM_TTL_S, nx: true })) === 'OK';
     },
-    async exists(code) {
-      return (await redis.exists(roomKey(code))) > 0;
-    },
-    async lock(code, t) {
-      return (await redis.set(lockKey(code), t, { nx: true, px: LOCK_TTL_MS })) === 'OK';
-    },
-    async unlock(code, t) {
-      await redis.eval(
-        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-        [lockKey(code)],
-        [t],
-      );
+    async cas(room, prev) {
+      const r = await redis.eval(CAS, [roomKey(room.code)], [JSON.stringify(room), String(prev), String(ROOM_TTL_S)]);
+      return Number(r) === 1;
     },
   };
 }
 
 // Redis « classique » (REDIS_URL, ex. l’intégration Redis de Vercel). La connexion est réutilisée entre les appels.
-const UNLOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 const gc = globalThis as unknown as { __grandTourTcp?: Promise<RedisClientType> };
 
 function tcpClient(url: string): Promise<RedisClientType> {
@@ -69,48 +65,42 @@ function tcpStore(url: string): Store {
       const raw = await (await c()).get(roomKey(code));
       return raw ? (JSON.parse(String(raw)) as ServerRoom) : null;
     },
-    async set(room) {
-      await (await c()).set(roomKey(room.code), JSON.stringify(room), { expiration: { type: 'EX', value: ROOM_TTL_S } });
-    },
-    async exists(code) {
-      return (await (await c()).exists(roomKey(code))) > 0;
-    },
-    async lock(code, t) {
-      const r = await (await c()).set(lockKey(code), t, { condition: 'NX', expiration: { type: 'PX', value: LOCK_TTL_MS } });
+    async create(room) {
+      const r = await (await c()).set(roomKey(room.code), JSON.stringify(room), { condition: 'NX', expiration: { type: 'EX', value: ROOM_TTL_S } });
       return r === 'OK';
     },
-    async unlock(code, t) {
-      await (await c()).eval(UNLOCK, { keys: [lockKey(code)], arguments: [t] });
+    async cas(room, prev) {
+      const r = await (await c()).eval(CAS, { keys: [roomKey(room.code)], arguments: [JSON.stringify(room), String(prev), String(ROOM_TTL_S)] });
+      return Number(r) === 1;
     },
   };
 }
 
-type Mem = { rooms: Map<string, { json: string; exp: number }>; locks: Map<string, { t: string; exp: number }> };
+type Mem = { rooms: Map<string, { json: string; exp: number }> };
 const g = globalThis as unknown as { __grandTourMem?: Mem };
 
 function memoryStore(): Store {
-  const mem = (g.__grandTourMem ??= { rooms: new Map(), locks: new Map() });
+  const mem = (g.__grandTourMem ??= { rooms: new Map() });
+  const read = (code: string) => {
+    const e = mem.rooms.get(code);
+    return !e || e.exp < Date.now() ? null : (JSON.parse(e.json) as ServerRoom);
+  };
+  const write = (room: ServerRoom) => mem.rooms.set(room.code, { json: JSON.stringify(room), exp: Date.now() + ROOM_TTL_S * 1000 });
   return {
     kind: 'memory',
     async get(code) {
-      const e = mem.rooms.get(code);
-      if (!e || e.exp < Date.now()) return null;
-      return JSON.parse(e.json) as ServerRoom;
+      return read(code);
     },
-    async set(room) {
-      mem.rooms.set(room.code, { json: JSON.stringify(room), exp: Date.now() + ROOM_TTL_S * 1000 });
-    },
-    async exists(code) {
-      return !!(await this.get(code));
-    },
-    async lock(code, t) {
-      const l = mem.locks.get(code);
-      if (l && l.exp > Date.now()) return false;
-      mem.locks.set(code, { t, exp: Date.now() + LOCK_TTL_MS });
+    async create(room) {
+      if (read(room.code)) return false;
+      write(room);
       return true;
     },
-    async unlock(code, t) {
-      if (mem.locks.get(code)?.t === t) mem.locks.delete(code);
+    async cas(room, prev) {
+      const cur = read(room.code);
+      if (!cur || cur.version !== prev) return false;
+      write(room);
+      return true;
     },
   };
 }
@@ -119,13 +109,11 @@ let cached: Store | null = null;
 
 export function getStore(): Store {
   if (cached) return cached;
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   const redisUrl = process.env.REDIS_URL || process.env.KV_URL;
-  if (redisUrl && !process.env.UPSTASH_REDIS_REST_URL && !process.env.KV_REST_API_URL) {
-    cached = tcpStore(redisUrl);
-    return cached;
-  }
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  cached = url && token ? redisStore(url, token) : memoryStore();
+  if (restUrl && restToken) cached = upstashStore(restUrl, restToken);
+  else if (redisUrl) cached = tcpStore(redisUrl);
+  else cached = memoryStore();
   return cached;
 }
